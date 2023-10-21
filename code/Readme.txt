@@ -5,4 +5,4 @@
 5. firm level.do: for replicating Table 6 based on firm level data.
 6. Table9_FF5.do: for replicating Table 9, testing the predictability of factor returns and forecast errors with LTG and its lag.
 
-Note: 1) Stata do files use these excels to generate the exact tables (in tex format) in the paper. 
+Note: 1) Stata do files use csvs in datasets from Data and those from WRDS to generate the exact tables (in DOC format) in the paper. 
