@@ -1,0 +1,1 @@
+These are the corresponding figures of the BGLS paper. I splitted the 2 graphs into 2 pdf.
