@@ -9,3 +9,6 @@ A bold attempt to replicate the tables and figures of the paper "Belief Overreac
 * Stata
 * R
 * Python
+
+Reference:
+Bordalo P, Gennaioli N, La Porta R, et al. Belief overreaction and stock market puzzles[M]. National Bureau of Economic Research, 2020.
