@@ -1,2 +1,0 @@
-These are the corresponding tables of the BGLS paper, the extra postfix is the corresponding cumulative returns' periods.
-For instance, "table4_3" means table4 and the dependent variable is the cumulative return of next 3 years.
