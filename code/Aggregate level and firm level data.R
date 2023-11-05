@@ -51,7 +51,11 @@ IBES <- IBES %>% mutate(yearmonth = YearMonth(FPEDATS) - 100 * FPI)
 # Merge with Compustat
 ###############################################################################
 compustat <- fread('compustat.csv')
-compustat <- compustat %>% group_by(LPERMNO) %>% 
+compustat$LINKENDDT[compustat$LINKENDDT == 'E'] <- as.character(Today())
+# For a current valid link, LINKENDDT is set to 'E', thus replace it with current date
+compustat <- compustat %>%
+  filter(datadate >= LINKDT, datadate <= LINKENDDT) %>% 
+  group_by(LPERMNO) %>% 
   mutate(past_eps = lag(epspi),
          yearmonth = YearMonth(datadate)) %>% 
   select(LPERMNO, datadate, fyear, yearmonth, at, epspi, past_eps, epspx, oibdp)
