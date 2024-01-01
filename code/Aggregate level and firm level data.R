@@ -70,9 +70,8 @@ IBES_link <- IBES %>% left_join(link, by = c('CUSIP' = 'NCUSIP', 'TICKER')) %>%
   select(PERMNO, CUSIP, STATPERS, FPI, MEDEST, epspi, past_eps, at, oibdp,
          CURCODE, datadate, fyear)
   
-
-# 因为LTG无法与Compustat匹配(LTG没有FPEDATS的数据，因此也没有YearMonth)
-# 为了在spread时保留其他数据，因此这里先把LTG挑出来，之后再拼上去
+# LTG cannot match Compustat data (LTG data doesn't have FPEDATS)
+# To keep other data when using the spread function, we first separate the LTG data (merge later)
 IBES_link_LTG <- IBES_link %>% filter(FPI == 0) %>% select(-epspi, -FPI, -past_eps,
                                                            -at, -oibdp, -fyear,
                                                            -CURCODE, -datadate)
@@ -183,24 +182,17 @@ market_sp500 <- market_sp500 %>%
          EPS_5 = EPS_5 / divisor) %>% 
   left_join(CPI, by = 'rankdate') %>% 
   mutate(cae = epspi / CPILFESL) %>% ungroup() %>% 
-  mutate(cae = lag(rollmean(cae, 120, fill = NA, align = 'right')) * CPILFESL,
-         cae_m5 = lag(cae, 60)) %>% 
+  # divide by the CPI of that month (inflation-adjusted), then multiply by the current month's
+  mutate(cae_m5 = lag(rollmean(cae, 60, fill = NA, align = 'right')) * CPILFESL) %>% 
   filter(!is.na(LTG))
 
-# Value used to transform the data
-coeff <- 20
 
 # the graph of "E[e_t+1] - e_t" seems to have some problems, much more volatile than the paper's.
 ggplot(market_sp500) + 
-  geom_line(mapping = aes(x = rankdate, y = LTG), colour = 'black') +
-  geom_line(mapping = aes(x = rankdate, y = (log(EPS_1) - log(EPS)) / coeff), colour = 'red') +
-  scale_y_continuous(
-    # Feature of the first axis
-    name = "LTG_t",
-    # Add a second axis and specify its features
-    sec.axis = sec_axis(~.*coeff, name = 'E[e_t+1] - e_t')
-  ) +
-    theme_classic()
+  geom_line(mapping = aes(x = rankdate, y = LTG), colour = 'black')
+
+ggplot(market_sp500) +
+  geom_line(mapping = aes(x = rankdate, y = (log(EPS_1) - log(EPS)) / coeff), colour = 'red')
 
 ###############################################################################
 # Merge data with other proxies from Nasdaq
