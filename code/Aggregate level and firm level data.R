@@ -38,14 +38,14 @@ sp500_list <- market_list %>% semi_join(sp500, by = c('PERMNO' = 'permno', 'rank
 ###############################################################################
 # Get IBES Summary Statistics and Compustat data
 # forecasted EPS from IBES
-# epspi, epspx, Total asset, operating profit from Compustat
+# epspx, epspx, Total asset, operating profit from Compustat
 # I originally used IBES actual, but there were too many missing data
 ###############################################################################
 
 IBES <- fread('IBES.csv') %>%  arrange(TICKER, STATPERS, FPI)
 
 IBES <- IBES %>% mutate(yearmonth = YearMonth(FPEDATS) - 100 * FPI)
-# YearMonth(FPEDATS) - 100 * FPI means the date of the data analysts have when they forecast EPS
+# YearMonth(FPEDATS) - 100 * FPI means the latest date of the EPS data analysts have when they forecast EPS
 
 ###############################################################################
 # Merge with Compustat
@@ -53,13 +53,25 @@ IBES <- IBES %>% mutate(yearmonth = YearMonth(FPEDATS) - 100 * FPI)
 compustat <- fread('compustat.csv')
 compustat$LINKENDDT[compustat$LINKENDDT == 'E'] <- as.character(Today())
 # For a current valid link, LINKENDDT is set to 'E', thus replace it with current date
+
+# Define a function to calculate the root, including for negative numbers
+root <- function(x, root) {
+  sign(x) * abs(x) ^ (1 / 5)
+}
 compustat <- compustat %>%
   filter(datadate >= LINKDT, datadate <= LINKENDDT) %>% 
+  group_by(datadate) %>% 
+  # winsorize across the whole dataset
+  mutate(epspx = Winsorize(epspx, na.rm = TRUE, probs = c(.01,.99))) %>%
   group_by(LPERMNO) %>% 
-  mutate(past_eps = lag(epspi),
-         yearmonth = YearMonth(datadate)) %>% 
-  select(LPERMNO, datadate, fyear, yearmonth, at, epspi, past_eps, epspx, oibdp)
+  mutate(past_eps = lag(epspx),
+         yearmonth = YearMonth(datadate),
+# construct e_growth to signify the actual LTG.
+# The LTG forecasts, as collected by I/B/E/S, usually cover a five-year period that begins on the first day of the current fiscal year. 
+         e_growth = root(lead(epspx, 5) / abs(epspx), 5) - 1) %>% 
+  select(LPERMNO, datadate, fyear, yearmonth, at, epspi, past_eps, epspx, oibdp, e_growth)
 
+# 
 link_table <- fread('link_data.csv')
 
 link <- link_table %>% filter(SCORE == 1) %>% 
@@ -67,14 +79,14 @@ link <- link_table %>% filter(SCORE == 1) %>%
 
 IBES_link <- IBES %>% left_join(link, by = c('CUSIP' = 'NCUSIP', 'TICKER')) %>%
   left_join(compustat, by = c('PERMNO' = 'LPERMNO', 'yearmonth')) %>% 
-  select(PERMNO, CUSIP, STATPERS, FPI, MEDEST, epspi, past_eps, at, oibdp,
+  select(PERMNO, CUSIP, STATPERS, FPI, MEDEST, epspx, e_growth, past_eps, at, oibdp,
          CURCODE, datadate, fyear)
   
 # LTG cannot match Compustat data (LTG data doesn't have FPEDATS)
 # To keep other data when using the spread function, we first separate the LTG data (merge later)
-IBES_link_LTG <- IBES_link %>% filter(FPI == 0) %>% select(-epspi, -FPI, -past_eps,
+IBES_link_LTG <- IBES_link %>% filter(FPI == 0) %>% select(-epspx, -FPI, -past_eps,
                                                            -at, -oibdp, -fyear,
-                                                           -CURCODE, -datadate)
+                                                           -CURCODE, -datadate, -e_growth)
 IBES_link_EPS <- IBES_link %>% filter(FPI != 0)
 
 # 长表变宽表
@@ -100,7 +112,7 @@ sp500_data <- sp500_list %>%
 
 
 ###############################################################################
-# adjust SP500 data
+# adjust SP500 data, Insert financial ratios data: pe_exi, pe_inc, divyield, bm, CAPE
 ###############################################################################
 
 sp500_data <- sp500_data %>% 
@@ -126,12 +138,26 @@ sp500_data <- sp500_data %>% mutate(predict_EPS = na.approx(predict_EPS, na.rm =
 # Adjust EPS to the forecast date and generate same base EPS 
 sp500_DATA <- sp500_data %>% 
   spread(key = horizon, value = predict_EPS)  %>% group_by(PERMNO) %>% 
-  mutate(EPS = epspi * CFACSHR / ann_cfacshr, 
-         # EPS_same_base = epspi / ann_cfacshr,
+  mutate(EPS = epspx * CFACSHR / ann_cfacshr, 
+         # EPS_same_base = epspx / ann_cfacshr,
          # EPS_same_base is to mitigate the effects of share splitting
          MV = PRC * SHROUT,
          lag_MV = lag(MV)) %>% 
   filter(!is.na(MV))
+
+# CAPEI: Multiple of Market Value of Equity to 5-year moving average of Net Income 
+
+financial_ratio <- fread('financial ratio.csv')
+financial_ratio <- financial_ratio %>% mutate(rankdate = YearMonth(public_date)) %>% 
+  select(permno, adate, rankdate, bm, pe_exi, pe_inc, divyield, CAPEI) %>% 
+  rename(datadate = adate, PERMNO = permno, dp = divyield)
+
+financial_ratio %>% fwrite('refine_financial_ratio.csv')
+
+CAPEI <- financial_ratio %>% select(PERMNO, rankdate, CAPEI)
+sp500_DATA <- sp500_DATA %>% 
+  left_join(CAPEI, by = c('PERMNO', 'rankdate')) %>% 
+  mutate(cae = PRC / CAPEI)
 
 ###############################################################################
 # get sp500 index from CRSP
@@ -149,8 +175,8 @@ sp500_index <- sp500_index %>%
 
 market_sp500 <- sp500_DATA %>% group_by(date, rankdate) %>% 
   summarise(LTG = weighted.mean(LTG, MV, na.rm = TRUE),
-            # bias = weighted.mean(bias, MV, na.rm = TRUE),
-            epspi = sum(epspi * SHROUT, na.rm = TRUE),
+            cae = sum(cae * SHROUT, na.rm = TRUE),
+            epspx = sum(epspx * SHROUT, na.rm = TRUE),
             EPS = sum(EPS * SHROUT, na.rm = TRUE),
             EPS_1 = sum(EPS_1 * SHROUT, na.rm = TRUE),
             EPS_2 = sum(EPS_2 * SHROUT, na.rm = TRUE),
@@ -167,33 +193,39 @@ market_sp500 <- sp500_DATA %>% group_by(date, rankdate) %>%
 # Figure 1
 ###############################################################################
 
-# Get CPI data to generate cyclically-adjusted EPS
-CPI <- fread("CPILFESL.csv")
-
 market_sp500 <- market_sp500 %>% 
   left_join(sp500_index, by = 'rankdate') %>% 
   filter(MV >= 0.9 * totval) %>%
-  mutate(EPS = EPS / divisor, 
-         epspi = epspi / divisor, 
+  mutate(epspx = epspx / divisor,
+         cae = cae / divisor,
+         EPS = EPS / divisor, 
          EPS_1 = EPS_1 / divisor,
          EPS_2 = EPS_2 / divisor,
          EPS_3 = EPS_3 / divisor,
          EPS_4 = EPS_4 / divisor,
          EPS_5 = EPS_5 / divisor) %>% 
-  left_join(CPI, by = 'rankdate') %>% 
-  mutate(cae = epspi / CPILFESL) %>% ungroup() %>% 
-  # divide by the CPI of that month (inflation-adjusted), then multiply by the current month's
-  mutate(cae_m5 = lag(rollmean(cae, 60, fill = NA, align = 'right')) * CPILFESL) %>% 
   filter(!is.na(LTG))
 
 
 # the graph of "E[e_t+1] - e_t" seems to have some problems, much more volatile than the paper's.
 ggplot(market_sp500) + 
-  geom_line(mapping = aes(x = rankdate, y = LTG), colour = 'black')
+  geom_line(mapping = aes(x = rankdate, y = LTG), colour = 'blue') +
+  stat_smooth(aes(x = rankdate, y = LTG), formula = y ~ s(x, k = 254), method = "gam", se = FALSE, colour = 'red') +
+  theme_classic()
 
 ggplot(market_sp500) +
-  geom_line(mapping = aes(x = rankdate, y = (log(EPS_1) - log(EPS)) / coeff), colour = 'red')
+  geom_line(mapping = aes(x = rankdate, y = log(EPS_1) - log(EPS)), colour = 'blue') +
+  stat_smooth(aes(x = rankdate, y = log(EPS_1) - log(EPS)), formula = y ~ s(x, k = 100), method = "gam", se = FALSE, colour = '#008a00') +
+  theme_classic()
 
+# merge 2 graphs
+# scale_y_continuous(
+#   # Feature of the first axis
+#   name = "LTG_t",
+#   # Add a second axis and specify its features
+#   sec.axis = sec_axis(~.*coeff, name = 'E[e_t+1] - e_t')
+# ) +
+#   theme_classic()
 ###############################################################################
 # Merge data with other proxies from Nasdaq
 ###############################################################################
@@ -234,10 +266,10 @@ economic_uncertainty <- fread('economic policy uncertainty index.csv') %>%
 market_sp500 <- market_sp500 %>% ungroup() %>% 
   mutate(YEAR = Year(date), QUARTER = Quarter(date),
          lag_LTG = lag(LTG, 12), delta_LTG = LTG - lag_LTG,
-         forecast_error = ifelse(epspi > 0, 
-                                 (lead(epspi, 60) / EPS) ** (1 / 5) - 1 - LTG,
-                                 ifelse(epspi < 0, 1 - (lead(epspi, 60) / EPS) ** (1 / 5) - LTG, NA)),
-         e_cae = log(epspi) - log(cae_m5)) %>% 
+         # right now, the column 'epspx' signifies the latest data analysts have,
+         # thus, to calculate the actual LTG, the EPS right now should not be included.
+         forecast_error = (lead(epspx, 60) / epspx) ** (1 / 5) - 1 - LTG,
+         e_cae = log(epspx) - log(cae)) %>% 
   left_join(pd, by = 'rankdate')  %>% 
   left_join(pe, by = 'rankdate') %>% 
   left_join(SVIX, by = 'rankdate') %>% 
@@ -254,7 +286,6 @@ pd %>% summarise(pd = 1 / (1 + exp(mean(dp))))
 
 ###############################################################################
 # Firm level data ---- Table 6 : Merge with Financial Ratio from Compustat
-# pe_exi, pe_inc, divyield, bm
 ###############################################################################
 
 market_data <- sp500_list %>% 
@@ -272,19 +303,13 @@ market_all <- market_data %>%
          MV = PRC * SHROUT, 
          lag_MV = lag(MV),
          log_RET = log(1 + RET),
-         forecast_error = ifelse(epspi > 0, 
-                                 (lead(epspi, 60) / epspi) ** (1 / 5) - 1 - LTG,
-                                 ifelse(epspi < 0, 1 - (lead(epspi, 60) / epspi) ** (1 / 5) - LTG, NA)),
-         pe = ifelse(epspi > 0, log(PRC) - log(epspi), NA))
+         forecast_error = ifelse(epspx > 0, 
+                                 (lead(epspx, 60) / epspx) ** (1 / 5) - 1 - LTG,
+                                 ifelse(epspx < 0, 1 - (lead(epspx, 60) / epspx) ** (1 / 5) - LTG, NA)),
+         pe = ifelse(epspx > 0, log(PRC) - log(epspx), NA))
 
 
 market_all %>% fwrite('market_level_data.csv')
-
-financial_ratio <- fread('financial_ratio.csv')
-financial_ratio <- financial_ratio %>% mutate(rankdate = YearMonth(public_date)) %>% 
-  select(permno, adate, rankdate, bm, pe_exi, pe_inc, divyield) %>% 
-  rename(datadate = adate, PERMNO = permno, dp = divyield)
-financial_ratio %>% fwrite('refine_financial_ratio.csv')
 
 #######################   Go to Python: firm level    ##########################
 ###############################################################################
