@@ -19,7 +19,7 @@ other datasets (e.g., CRSP, IBES, link_data) are all from WRDS database, due to 
 CRSP columns: PERMNO, date, NCUSIP, PRC, RET, SHROUT, CFACSHR, vwretd
 IBES all columns: not that many, so I just downloaded all of them
 Compustat columns: GVKEY, LINKPRIM, LIID, LINKTYPE, LPERMNO, LINKDT, LINKENDDT, datadate, fyear, tic, cusip, fyr, at, epspi, epspx, oibdp 
-financial ratios columns: gvkey, permno, adate, qdate, public_date, bm, pe_exi, pe_inc, divyield, TICKER, cusip
+financial ratios columns: gvkey, permno, adate, qdate, public_date, bm, pe_exi, pe_inc, divyield, TICKER, cusip， CAPEI
 link_data columns: TICKER, PERMNO, NCUSIP, sdate, edate, SCORE
 
 Data usage for all figures and tables:
