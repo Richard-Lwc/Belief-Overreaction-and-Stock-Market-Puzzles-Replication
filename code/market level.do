@@ -49,7 +49,7 @@ reg std_delta_LTG std_lag_LTG std_e_cae std_dp
 reg std_delta_LTG std_lag_LTG std_e_cae std_SVIX
 
 
-//因为只有Table 3的时间跨度为1988:01 - 2020:12，之后都是1988:01 - 2015:12，因此先跑出Table 3 再drop
+//Table 3 has a span from 1988:01 - 2020:12，then other tables are all from 1988:01 - 2015:12，thus I first run table 3 then I drop the data after 2015.12
 drop if rankdate > 201512
 
 // Table 1
@@ -202,6 +202,7 @@ predict predicted_forecast_error, xb
 newey std_return_1_5 std_delta_LTG std_lag_LTG, lag(60)
 est store m2
 // IV
+// egen std_predicted_forecast_error = std(predicted_forecast_error)
 newey std_return_1_5 predicted_forecast_error, lag(60)
 est store m3
 newey std_return_1_5 predicted_forecast_error std_dp, lag(60)
@@ -263,7 +264,6 @@ predict residual_return_1, r
 qui reg std_return_1_3 std_delta_LTG_1 std_delta_LTG_2 std_delta_LTG_3 std_forecast_error_m4 std_forecast_error_m3 std_forecast_error_m2 
 predict residual_return_1_3, r
 
-// newey std_return_1_5 std_delta_LTG_1 std_delta_LTG_2 std_delta_LTG_3 std_delta_LTG_4 std_delta_LTG_5 std_forecast_error_m4 std_forecast_error_m3 std_forecast_error_m2 std_forecast_error_m1 std_forecast_error, lag(60)
 qui reg std_return_1_5 std_delta_LTG_1 std_delta_LTG_2 std_delta_LTG_3 std_delta_LTG_4 std_delta_LTG_5 std_forecast_error_m4 std_forecast_error_m3 std_forecast_error_m2 std_forecast_error_m1 std_forecast_error
 predict residual_return_1_5, r
 

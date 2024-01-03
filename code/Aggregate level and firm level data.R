@@ -71,7 +71,6 @@ compustat <- compustat %>%
          e_growth = root(lead(epspx, 5) / abs(epspx), 5) - 1) %>% 
   select(LPERMNO, datadate, fyear, yearmonth, at, epspi, past_eps, epspx, oibdp, e_growth)
 
-# 
 link_table <- fread('link_data.csv')
 
 link <- link_table %>% filter(SCORE == 1) %>% 
@@ -234,7 +233,6 @@ pd <- fread("MULTPL-SP500_DIV_YIELD_MONTH.csv")
 pd <- pd %>% mutate(day = Day(date), rankdate = YearMonth(date)) %>% 
   filter(day != 1) %>% select(rankdate, dp)
 
-# PE ratio是期初的，可能有一点误差
 pe <- fread("MULTPL-SP500_PE_RATIO_MONTH.csv")
 pe <- pe %>% mutate(day = Day(Date), rankdate = YearMonth(Date)) %>% 
   filter(day == 1) %>% select(rankdate, pe)
@@ -303,9 +301,7 @@ market_all <- market_data %>%
          MV = PRC * SHROUT, 
          lag_MV = lag(MV),
          log_RET = log(1 + RET),
-         forecast_error = ifelse(epspx > 0, 
-                                 (lead(epspx, 60) / epspx) ** (1 / 5) - 1 - LTG,
-                                 ifelse(epspx < 0, 1 - (lead(epspx, 60) / epspx) ** (1 / 5) - LTG, NA)),
+         forecast_error = e_growth - LTG,
          pe = ifelse(epspx > 0, log(PRC) - log(epspx), NA))
 
 
@@ -341,30 +337,6 @@ LTG_all %>% fwrite('LTG_portfolio.csv')
 
 #######################   Go to Python: LTG Portfolio ##########################
 
-# ###############################################################################
-# # bias level data ---- Table 7 and 8 using LTG bias
-# ###############################################################################
-# bias_portfolio <- market_all %>% filter(!is.na(forecast_error), !is.na(lag_MV)) %>% 
-#   group_by(rankdate) %>% 
-#   mutate(quantile_rank = ntile(forecast_error, 2))
-# 
-# bias_RET <- bias_portfolio %>% group_by(rankdate, quantile_rank) %>% 
-#   summarise(RET = weighted.mean(RET, lag_MV, na.rm = TRUE),
-#             Mkt = mean(vwretd)) %>% 
-#   spread(key = quantile_rank, value = RET) %>% 
-#   rename(Lbias_RET = `1`, Hbias_RET = `2`)
-# 
-# portfolio_error <- bias_portfolio %>% group_by(rankdate, quantile_rank) %>% 
-#   summarise(portfolio_error = mean(forecast_error, na.rm = TRUE)) %>% 
-#   spread(key = quantile_rank, value = portfolio_error) %>% 
-#   rename(Lbias_error = `1`, Hbias_error = `2`)
-# 
-# bias_all <- bias_RET %>% left_join(portfolio_error, by = 'rankdate')
-# 
-# bias_all %>% fwrite('bias_portfolio.csv')
-# 
-# #######################   Go to Python: Bias Portfolio ##########################
-
 ###############################################################################
 # FF5 ---- Table 9       I use all firms in the market rather than only S&P500 
 ###############################################################################
@@ -397,7 +369,7 @@ INV <- FF5 %>% group_by(rankdate, size_rank, inv_rank) %>%
   summarise(RET = weighted.mean(RET, lag_MV, na.rm = TRUE), 
             forecast_error = mean(forecast_error, na.rm = TRUE))
 
-# 先考虑return 
+# First consider return 
 # SMB
 SMB_BM <- BM %>% group_by(rankdate, size_rank) %>% 
   summarise(RET = mean(RET)) %>% 
@@ -440,7 +412,7 @@ ff5_return <- SMB %>% left_join(HML, by = 'rankdate') %>%
   left_join(RMW, by = 'rankdate') %>% 
   left_join(CMA, by = 'rankdate')
 
-# 再考虑forecast error
+# Then we consider the forecast error
 # SMB
 f_SMB_BM <- BM %>% group_by(rankdate, size_rank) %>% 
   summarise(forecast_error = mean(forecast_error, na.rm = TRUE)) %>% 

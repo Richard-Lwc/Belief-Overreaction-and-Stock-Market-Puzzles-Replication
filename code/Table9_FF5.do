@@ -13,6 +13,9 @@ egen std_f_HML = std(f_HML)
 egen std_f_RMW = std(f_RMW)
 egen std_f_CMA = std(f_CMA)
 
+
+keep if rankdate >= 198212 & rankdate <= 201512
+
 gen t = _n
 tsset t
 
